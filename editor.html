@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; background: #1e1e2e; }
+  #editor { height: 100%; }
+
+  .cm-editor {
+    height: 100%;
+    font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', Consolas, monospace;
+    font-size: 13px;
+    line-height: 1.6;
+  }
+  .cm-editor.cm-focused { outline: none; }
+  .cm-scroller { overflow: auto; }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: #1e1e2e; }
+  ::-webkit-scrollbar-thumb { background: #45475a; border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: #585b70; }
+</style>
+</head>
+<body>
+<div id="editor"></div>
+
+<script type="module">
+import { EditorState, Compartment } from "https://esm.sh/@codemirror/state@6";
+import { EditorView, keymap, lineNumbers, highlightActiveLineGutter,
+         highlightSpecialChars, drawSelection, dropCursor,
+         rectangularSelection, crosshairCursor,
+         highlightActiveLine, scrollPastEnd } from "https://esm.sh/@codemirror/view@6";
+import { defaultKeymap, history, historyKeymap, indentWithTab } from "https://esm.sh/@codemirror/commands@6";
+import { indentOnInput, syntaxHighlighting, defaultHighlightStyle,
+         bracketMatching, foldGutter, foldKeymap } from "https://esm.sh/@codemirror/language@6";
+import { closeBrackets, closeBracketsKeymap, autocompletion,
+         completionKeymap } from "https://esm.sh/@codemirror/autocomplete@6";
+import { searchKeymap, highlightSelectionMatches } from "https://esm.sh/@codemirror/search@6";
+import { lintKeymap } from "https://esm.sh/@codemirror/lint@6";
+import { python } from "https://esm.sh/@codemirror/lang-python@6";
+import { javascript } from "https://esm.sh/@codemirror/lang-javascript@6";
+import { html } from "https://esm.sh/@codemirror/lang-html@6";
+import { css } from "https://esm.sh/@codemirror/lang-css@6";
+import { json } from "https://esm.sh/@codemirror/lang-json@6";
+import { markdown } from "https://esm.sh/@codemirror/lang-markdown@6";
+import { oneDark } from "https://esm.sh/@codemirror/theme-one-dark@6";
+
+// ── Language compartment (hot-swap) ──────────────────────────────────────
+const langComp = new Compartment();
+const readonlyComp = new Compartment();
+
+function getLanguage(filename) {
+  if (!filename) return python();
+  const ext = filename.split('.').pop().toLowerCase();
+  const map = {
+    py: python(), js: javascript(), mjs: javascript(),
+    ts: javascript({typescript: true}), tsx: javascript({typescript: true, jsx: true}),
+    jsx: javascript({jsx: true}), html: html(), htm: html(),
+    css: css(), json: json(), md: markdown(), markdown: markdown(),
+  };
+  return map[ext] || python();
+}
+
+// ── Editor setup ─────────────────────────────────────────────────────────
+let view = new EditorView({
+  state: EditorState.create({
+    doc: "",
+    extensions: [
+      lineNumbers(),
+      highlightActiveLineGutter(),
+      highlightSpecialChars(),
+      history(),
+      foldGutter(),
+      drawSelection(),
+      dropCursor(),
+      EditorState.allowMultipleSelections.of(true),
+      indentOnInput(),
+      syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
+      bracketMatching(),
+      closeBrackets(),
+      autocompletion(),
+      rectangularSelection(),
+      crosshairCursor(),
+      highlightActiveLine(),
+      highlightSelectionMatches(),
+      scrollPastEnd(),
+      keymap.of([
+        ...closeBracketsKeymap,
+        ...defaultKeymap,
+        ...searchKeymap,
+        ...historyKeymap,
+        ...foldKeymap,
+        ...completionKeymap,
+        ...lintKeymap,
+        indentWithTab,
+      ]),
+      langComp.of(python()),
+      readonlyComp.of(EditorState.readOnly.of(false)),
+      oneDark,
+      EditorView.updateListener.of(update => {
+        if (update.docChanged) {
+          // Notify Qt that document changed
+          if (window.pyideChannel) {
+            window.pyideChannel.postMessage(JSON.stringify({
+              type: "changed",
+              content: view.state.doc.toString()
+            }));
+          }
+        }
+      }),
+      EditorView.theme({
+        "&": { backgroundColor: "#1e1e2e" },
+        ".cm-gutters": { backgroundColor: "#181825", borderRight: "1px solid #313244" },
+        ".cm-activeLineGutter": { backgroundColor: "#262637" },
+        ".cm-foldGutter": { width: "12px" },
+      }),
+    ],
+  }),
+  parent: document.getElementById("editor"),
+});
+
+// ── API exposed to Qt/Python ──────────────────────────────────────────────
+
+window.pyide = {
+  setContent(text) {
+    view.dispatch({
+      changes: { from: 0, to: view.state.doc.length, insert: text }
+    });
+    // Clear history after initial load
+    view.dispatch({ effects: [] });
+  },
+
+  getContent() {
+    return view.state.doc.toString();
+  },
+
+  setLanguage(filename) {
+    view.dispatch({
+      effects: langComp.reconfigure(getLanguage(filename))
+    });
+  },
+
+  setReadOnly(val) {
+    view.dispatch({
+      effects: readonlyComp.reconfigure(EditorState.readOnly.of(val))
+    });
+  },
+
+  gotoLine(line) {
+    const lineInfo = view.state.doc.line(Math.max(1, line));
+    view.dispatch({ selection: { anchor: lineInfo.from }, scrollIntoView: true });
+    view.focus();
+  },
+
+  focus() {
+    view.focus();
+  },
+
+  undo() { view.dispatch(undo(view.state)); },
+  redo() { view.dispatch(redo(view.state)); },
+};
+
+// Notify Qt that the editor is ready
+if (window.pyideChannel) {
+  window.pyideChannel.postMessage(JSON.stringify({ type: "ready" }));
+}
+</script>
+</body>
+</html>

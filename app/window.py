@@ -28,11 +28,11 @@ from core.style import DARK_STYLE
 class MainWindow(QMainWindow):
     def __init__(self, start_path: str | None = None):
         super().__init__()
-        self.setWindowTitle("PyIDE")
+        self.setWindowTitle("NepiIDE")
         self.resize(1400, 900)
         self.setStyleSheet(DARK_STYLE)
 
-        self._settings = QSettings("pyide", "PyIDE")
+        self._settings = QSettings("NepiIDE", "NepiIDE")
         self._current_project: str | None = None
 
         self._build_ui()
@@ -237,7 +237,7 @@ class MainWindow(QMainWindow):
 
     def open_folder(self, path: str):
         self._current_project = path
-        self.setWindowTitle(f"PyIDE — {Path(path).name}")
+        self.setWindowTitle(f"NepiIDE — {Path(path).name}")
         self.file_tree.set_root(path)
         self.git_panel.set_repo(path)
         self.flask_runner.set_cwd(path)

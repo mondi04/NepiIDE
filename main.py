@@ -1,5 +1,5 @@
 """
-PyIDE — Lightweight Python Desktop IDE
+NepiIDE — Lightweight Python Desktop IDE
 Run: python main.py [optional: path/to/project]
 """
 
@@ -15,8 +15,8 @@ from core.window import MainWindow
 
 def main():
     app = QApplication(sys.argv)
-    app.setApplicationName("PyIDE")
-    app.setOrganizationName("pyide")
+    app.setApplicationName("NepiIDE")
+    app.setOrganizationName("NepiIDE")
 
     # High-DPI
     app.setAttribute(Qt.ApplicationAttribute.AA_UseHighDpiPixmaps)

@@ -104,7 +104,7 @@ class TerminalWidget(QWidget):
         layout.addWidget(self._output)
         layout.addWidget(input_row)
 
-        self._append("PyIDE Terminal — type commands below\n", "#585b70")
+        self._append("NepiIDE Terminal — type commands below\n", "#585b70")
         self._update_prompt()
 
     # ---------------------------------------------------------------- API --

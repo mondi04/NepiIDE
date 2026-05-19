@@ -72,7 +72,7 @@ class EditorPane(QWidget):
         self._bridge.content_changed.connect(self._on_content_changed)
 
         self._channel = QWebChannel()
-        self._channel.registerObject("pyideChannel", self._bridge)
+        self._channel.registerObject("NepiIDEChannel", self._bridge)
         self._view.page().setWebChannel(self._channel)
 
         url = QUrl.fromLocalFile(str(EDITOR_HTML))
@@ -122,7 +122,7 @@ class EditorPane(QWidget):
     def _write(self, path: str) -> bool:
         # Get content via JS synchronously (best-effort)
         self._view.page().runJavaScript(
-            "window.pyide ? window.pyide.getContent() : ''",
+            "window.NepiIDE ? window.NepiIDE.getContent() : ''",
             lambda result: self._do_write(path, result or "")
         )
         return True
@@ -155,7 +155,7 @@ class EditorPane(QWidget):
         if self._pending_content is not None:
             escaped = self._pending_content.replace("\\", "\\\\").replace("`", "\\`")
             self._view.page().runJavaScript(
-                f"window.pyide && window.pyide.setContent(`{escaped}`)"
+                f"window.NepiIDE && window.NepiIDE.setContent(`{escaped}`)"
             )
             self._dirty = False
             self.dirty_changed.emit(False)
@@ -164,7 +164,7 @@ class EditorPane(QWidget):
         if self._pending_lang is not None:
             lang_escaped = self._pending_lang.replace("'", "\\'")
             self._view.page().runJavaScript(
-                f"window.pyide && window.pyide.setLanguage('{lang_escaped}')"
+                f"window.NepiIDE && window.NepiIDE.setLanguage('{lang_escaped}')"
             )
             self._pending_lang = None
 
@@ -176,11 +176,11 @@ class EditorPane(QWidget):
 
     def focus_editor(self):
         self._view.setFocus()
-        self._view.page().runJavaScript("window.pyide && window.pyide.focus()")
+        self._view.page().runJavaScript("window.NepiIDE && window.NepiIDE.focus()")
 
     def goto_line(self, line: int):
         self._view.page().runJavaScript(
-            f"window.pyide && window.pyide.gotoLine({line})"
+            f"window.NepiIDE && window.NepiIDE.gotoLine({line})"
         )
 
 

@@ -1,6 +1,5 @@
 """
 EditorTabWidget — verwaltet mehrere offene Dateien als Tabs.
-Jeder Tab ist eine EditorPane (QWebEngineView + CodeMirror).
 """
 
 from __future__ import annotations
@@ -18,7 +17,8 @@ from PyQt6.QtCore import QObject, pyqtSlot
 import json
 
 
-EDITOR_HTML = Path(__file__).parent.parent / "resources" / "editor.html"
+# Correct path: editor.html lives next to this file
+EDITOR_HTML = Path(__file__).parent / "editor.html"
 
 BINARY_EXT = {
     ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico",
@@ -28,7 +28,6 @@ BINARY_EXT = {
 
 
 class JSBridge(QObject):
-    """Python-side object exposed to JavaScript via QWebChannel."""
     content_changed = pyqtSignal(str)
     editor_ready = pyqtSignal()
 
@@ -45,8 +44,6 @@ class JSBridge(QObject):
 
 
 class EditorPane(QWidget):
-    """Single editor tab: WebEngineView + CodeMirror + WebChannel."""
-
     dirty_changed = pyqtSignal(bool)
 
     def __init__(self, filepath: str | None = None):
@@ -75,8 +72,6 @@ class EditorPane(QWidget):
 
         url = QUrl.fromLocalFile(str(EDITOR_HTML))
         self._view.load(url)
-
-    # ---------------------------------------------------------------- API --
 
     @property
     def filepath(self) -> str | None:
@@ -130,8 +125,6 @@ class EditorPane(QWidget):
         except OSError as e:
             QMessageBox.critical(self, "Save Error", str(e))
 
-    # ---------------------------------------------------------------- internal --
-
     def _set_content(self, text: str, filepath: str | None = None):
         self._current_content = text
         self._pending_content = text
@@ -145,7 +138,6 @@ class EditorPane(QWidget):
 
     def _apply_pending(self):
         if self._pending_content is not None:
-            # Escape backticks and backslashes for JS template literal
             escaped = (
                 self._pending_content
                 .replace("\\", "\\\\")
@@ -193,8 +185,6 @@ class EditorTabWidget(QTabWidget):
         self.tabCloseRequested.connect(self._close_tab)
         self.currentChanged.connect(self._on_tab_changed)
         self._filepath_to_idx: dict[str, int] = {}
-
-    # ---------------------------------------------------------------- API --
 
     def open_file(self, filepath: str):
         if filepath in self._filepath_to_idx:
@@ -250,8 +240,6 @@ class EditorTabWidget(QTabWidget):
                 if reply == QMessageBox.StandardButton.Save:
                     pane.save()
         return True
-
-    # ---------------------------------------------------------------- slots --
 
     def _close_tab(self, idx: int):
         pane = self.widget(idx)

@@ -17,7 +17,8 @@ def main():
     app.setApplicationName("NepiIDE")
     app.setOrganizationName("NepiIDE")
 
-    app.setAttribute(Qt.ApplicationAttribute.AA_EnableHighDpiScaling)
+    # AA_EnableHighDpiScaling and AA_UseHighDpiPixmaps were removed in PyQt6;
+    # high-DPI support is enabled automatically — no setAttribute needed.
 
     start_path = None
     if len(sys.argv) > 1:

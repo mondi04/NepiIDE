@@ -4,13 +4,12 @@ Run: python main.py [optional: path/to/project]
 """
 
 import sys
-import os
 from pathlib import Path
 
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import Qt
 
-from core.window import MainWindow
+from app.window import MainWindow
 
 
 def main():
@@ -18,10 +17,8 @@ def main():
     app.setApplicationName("NepiIDE")
     app.setOrganizationName("NepiIDE")
 
-    # High-DPI
-    app.setAttribute(Qt.ApplicationAttribute.AA_UseHighDpiPixmaps)
+    app.setAttribute(Qt.ApplicationAttribute.AA_EnableHighDpiScaling)
 
-    # Optional: open a folder from CLI arg
     start_path = None
     if len(sys.argv) > 1:
         p = Path(sys.argv[1]).resolve()

@@ -16,7 +16,6 @@
   .cm-editor.cm-focused { outline: none; }
   .cm-scroller { overflow: auto; }
 
-  /* Custom scrollbar */
   ::-webkit-scrollbar { width: 8px; height: 8px; }
   ::-webkit-scrollbar-track { background: #1e1e2e; }
   ::-webkit-scrollbar-thumb { background: #45475a; border-radius: 4px; }
@@ -26,6 +25,7 @@
 <body>
 <div id="editor"></div>
 
+<script src="qrc:///qtwebchannel/qwebchannel.js"></script>
 <script type="module">
 import { EditorState, Compartment } from "https://esm.sh/@codemirror/state@6";
 import { EditorView, keymap, lineNumbers, highlightActiveLineGutter,
@@ -47,7 +47,6 @@ import { json } from "https://esm.sh/@codemirror/lang-json@6";
 import { markdown } from "https://esm.sh/@codemirror/lang-markdown@6";
 import { oneDark } from "https://esm.sh/@codemirror/theme-one-dark@6";
 
-// ── Language compartment (hot-swap) ──────────────────────────────────────
 const langComp = new Compartment();
 const readonlyComp = new Compartment();
 
@@ -63,7 +62,6 @@ function getLanguage(filename) {
   return map[ext] || python();
 }
 
-// ── Editor setup ─────────────────────────────────────────────────────────
 let view = new EditorView({
   state: EditorState.create({
     doc: "",
@@ -100,14 +98,11 @@ let view = new EditorView({
       readonlyComp.of(EditorState.readOnly.of(false)),
       oneDark,
       EditorView.updateListener.of(update => {
-        if (update.docChanged) {
-          // Notify Qt that document changed
-          if (window.NepiIDEChannel) {
-            window.NepiIDEChannel.postMessage(JSON.stringify({
-              type: "changed",
-              content: view.state.doc.toString()
-            }));
-          }
+        if (update.docChanged && window._nepiChannel) {
+          window._nepiChannel.postMessage(JSON.stringify({
+            type: "changed",
+            content: view.state.doc.toString()
+          }));
         }
       }),
       EditorView.theme({
@@ -121,51 +116,34 @@ let view = new EditorView({
   parent: document.getElementById("editor"),
 });
 
-// ── API exposed to Qt/Python ──────────────────────────────────────────────
-
 window.NepiIDE = {
   setContent(text) {
     view.dispatch({
       changes: { from: 0, to: view.state.doc.length, insert: text }
     });
-    // Clear history after initial load
-    view.dispatch({ effects: [] });
   },
-
   getContent() {
     return view.state.doc.toString();
   },
-
   setLanguage(filename) {
-    view.dispatch({
-      effects: langComp.reconfigure(getLanguage(filename))
-    });
+    view.dispatch({ effects: langComp.reconfigure(getLanguage(filename)) });
   },
-
   setReadOnly(val) {
-    view.dispatch({
-      effects: readonlyComp.reconfigure(EditorState.readOnly.of(val))
-    });
+    view.dispatch({ effects: readonlyComp.reconfigure(EditorState.readOnly.of(val)) });
   },
-
   gotoLine(line) {
     const lineInfo = view.state.doc.line(Math.max(1, line));
     view.dispatch({ selection: { anchor: lineInfo.from }, scrollIntoView: true });
     view.focus();
   },
-
-  focus() {
-    view.focus();
-  },
-
-  undo() { view.dispatch(undo(view.state)); },
-  redo() { view.dispatch(redo(view.state)); },
+  focus() { view.focus(); },
 };
 
-// Notify Qt that the editor is ready
-if (window.NepiIDEChannel) {
-  window.NepiIDEChannel.postMessage(JSON.stringify({ type: "ready" }));
-}
+// Set up QWebChannel
+new QWebChannel(qt.webChannelTransport, function(channel) {
+  window._nepiChannel = channel.objects.NepiIDEChannel;
+  window._nepiChannel.postMessage(JSON.stringify({ type: "ready" }));
+});
 </script>
 </body>
 </html>

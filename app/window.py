@@ -17,12 +17,12 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QSize, QSettings, pyqtSignal
 from PyQt6.QtGui import QAction, QKeySequence, QIcon, QFont
 
-from core.filetree import FileTree
-from core.editor_tab import EditorTabWidget
-from core.terminal import TerminalWidget
-from core.git_panel import GitPanel
-from core.flask_runner import FlaskRunner
-from core.style import DARK_STYLE
+from app.filetree.filetree import FileTree
+from app.editor.editor_tab import EditorTabWidget
+from app.terminal.terminal import TerminalWidget
+from app.git.git_panel import GitPanel
+from app.flask.flask_runner import FlaskRunner
+from app.style import DARK_STYLE
 
 
 class MainWindow(QMainWindow):

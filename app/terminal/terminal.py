@@ -1,13 +1,5 @@
 """
-TerminalWidget — echtes PTY-Terminal via QProcess.
-
-Strategie:
-  - Primär: ptyprocess (wenn installiert) für echtes PTY mit ANSI
-  - Fallback: QProcess ohne PTY (kein Colour, aber funktional)
-
-ANSI-Escape-Codes werden via einfaches Regex-Stripping entfernt
-(QTextEdit versteht kein ANSI nativ); für echtes ANSI wäre
-QWebEngineView + xterm.js nötig – das ist als optionaler Upgrade geplant.
+TerminalWidget — eingebettetes Terminal via QProcess.
 """
 
 from __future__ import annotations
@@ -15,18 +7,16 @@ from __future__ import annotations
 import os
 import re
 import sys
-import shlex
 from pathlib import Path
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTextEdit, QLineEdit,
     QPushButton, QLabel, QSizePolicy,
 )
-from PyQt6.QtCore import Qt, QProcess, QTimer, pyqtSignal, QIODevice
-from PyQt6.QtGui import QFont, QTextCursor, QColor, QPalette, QKeyEvent
+from PyQt6.QtCore import Qt, QProcess, pyqtSignal, QProcessEnvironment
+from PyQt6.QtGui import QFont, QTextCursor, QColor, QKeyEvent
 
 
-# Strip ANSI escape sequences
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*[mGKHF]|\x1b\][^\x07]*\x07|\x1b[()].")
 
 
@@ -43,7 +33,6 @@ class TerminalWidget(QWidget):
         self._history: list[str] = []
         self._history_idx: int = -1
         self._process: QProcess | None = None
-
         self._build_ui()
 
     def _build_ui(self):
@@ -51,22 +40,18 @@ class TerminalWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        # Output area
         self._output = QTextEdit()
         self._output.setReadOnly(True)
         self._output.setFont(QFont("JetBrains Mono", 11))
         self._output.setStyleSheet("""
             QTextEdit {
-                background: #11111b;
-                color: #cdd6f4;
-                border: none;
-                padding: 4px;
+                background: #11111b; color: #cdd6f4;
+                border: none; padding: 4px;
                 selection-background-color: #45475a;
             }
         """)
         self._output.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
-        # Input row
         input_row = QWidget()
         input_layout = QHBoxLayout(input_row)
         input_layout.setContentsMargins(4, 2, 4, 2)
@@ -79,12 +64,7 @@ class TerminalWidget(QWidget):
         self._input = QLineEdit()
         self._input.setFont(QFont("JetBrains Mono", 11))
         self._input.setStyleSheet("""
-            QLineEdit {
-                background: #11111b;
-                color: #cdd6f4;
-                border: none;
-                padding: 2px 4px;
-            }
+            QLineEdit { background: #11111b; color: #cdd6f4; border: none; padding: 2px 4px; }
         """)
         self._input.returnPressed.connect(self._execute)
         self._input.installEventFilter(self)
@@ -92,8 +72,10 @@ class TerminalWidget(QWidget):
         kill_btn = QPushButton("✕")
         kill_btn.setFixedSize(22, 22)
         kill_btn.setToolTip("Kill running process")
-        kill_btn.setStyleSheet("QPushButton { background: #313244; color: #f38ba8; border: none; border-radius: 3px; }"
-                               "QPushButton:hover { background: #f38ba8; color: #1e1e2e; }")
+        kill_btn.setStyleSheet(
+            "QPushButton { background: #313244; color: #f38ba8; border: none; border-radius: 3px; }"
+            "QPushButton:hover { background: #f38ba8; color: #1e1e2e; }"
+        )
         kill_btn.clicked.connect(self._kill_process)
 
         input_layout.addWidget(self._prompt_label)
@@ -114,7 +96,6 @@ class TerminalWidget(QWidget):
         self._update_prompt()
 
     def run_command(self, cmd: str, cwd: str | None = None):
-        """Run a command programmatically (e.g. from Run button)."""
         if cwd:
             self._cwd = cwd
         self._input.setText(cmd)
@@ -133,14 +114,11 @@ class TerminalWidget(QWidget):
 
         self._history.append(cmd)
         self._history_idx = len(self._history)
-
         self._append(f"$ {cmd}\n", "#a6e3a1")
 
-        # Handle cd internally
         if cmd.startswith("cd ") or cmd == "cd":
             self._handle_cd(cmd)
             return
-
         if cmd == "clear":
             self._output.clear()
             return
@@ -171,8 +149,6 @@ class TerminalWidget(QWidget):
         self._process.readyReadStandardError.connect(self._on_stderr)
         self._process.finished.connect(self._on_finished)
 
-        env = self._process.processEnvironment()
-        from PyQt6.QtCore import QProcessEnvironment
         env = QProcessEnvironment.systemEnvironment()
         env.insert("TERM", "xterm-256color")
         env.insert("PYTHONUNBUFFERED", "1")
@@ -219,8 +195,6 @@ class TerminalWidget(QWidget):
         cursor.insertText(text)
         self._output.setTextCursor(cursor)
         self._output.ensureCursorVisible()
-
-    # ---------------------------------------------------------------- history nav --
 
     def eventFilter(self, obj, event):
         if obj is self._input and isinstance(event, QKeyEvent):

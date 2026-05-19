@@ -1,12 +1,5 @@
 """
 GitPanel — kompaktes Git-Panel.
-
-Features:
-  - Status-Liste (modified / untracked / staged)
-  - Stage All / Stage Selected / Unstage
-  - Commit mit Message
-  - Pull / Push
-  - Inline Diff (unified) beim Klick auf Datei
 """
 
 from __future__ import annotations
@@ -17,14 +10,13 @@ from pathlib import Path
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QListWidget, QListWidgetItem, QTextEdit, QLineEdit,
-    QSplitter, QMessageBox, QInputDialog,
+    QSplitter, QMessageBox,
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QThread, QObject
 from PyQt6.QtGui import QFont, QColor
 
 
 def _git(args: list[str], cwd: str) -> tuple[str, str, int]:
-    """Run a git command, return (stdout, stderr, returncode)."""
     try:
         r = subprocess.run(
             ["git"] + args,
@@ -40,8 +32,7 @@ def _git(args: list[str], cwd: str) -> tuple[str, str, int]:
 
 
 class GitWorker(QObject):
-    """Background thread for slow git ops (pull/push)."""
-    done = pyqtSignal(str, str)   # (stdout, stderr)
+    done = pyqtSignal(str, str)
 
     def __init__(self, args: list[str], cwd: str):
         super().__init__()
@@ -59,6 +50,8 @@ class GitPanel(QWidget):
     def __init__(self):
         super().__init__()
         self._repo: str | None = None
+        self._thread: QThread | None = None
+        self._worker: GitWorker | None = None
         self._build_ui()
 
     def _build_ui(self):
@@ -66,7 +59,6 @@ class GitPanel(QWidget):
         layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(4)
 
-        # Header
         header = QHBoxLayout()
         title = QLabel("Git")
         title.setStyleSheet("font-weight: bold; color: #cba6f7;")
@@ -82,10 +74,8 @@ class GitPanel(QWidget):
         header.addWidget(refresh_btn)
         layout.addLayout(header)
 
-        # Splitter: file list | diff
         splitter = QSplitter(Qt.Orientation.Vertical)
 
-        # File list
         list_widget = QWidget()
         list_layout = QVBoxLayout(list_widget)
         list_layout.setContentsMargins(0, 0, 0, 0)
@@ -101,7 +91,6 @@ class GitPanel(QWidget):
         self._file_list.currentItemChanged.connect(self._on_file_selected)
         list_layout.addWidget(self._file_list)
 
-        # Action buttons
         btn_row = QHBoxLayout()
         for label, slot in [
             ("Stage All", self.stage_all),
@@ -114,11 +103,12 @@ class GitPanel(QWidget):
             btn_row.addWidget(btn)
         list_layout.addLayout(btn_row)
 
-        # Commit row
         commit_row = QHBoxLayout()
         self._commit_msg = QLineEdit()
         self._commit_msg.setPlaceholderText("Commit message…")
-        self._commit_msg.setStyleSheet("background: #1e1e2e; color: #cdd6f4; border: 1px solid #313244; padding: 2px 4px;")
+        self._commit_msg.setStyleSheet(
+            "background: #1e1e2e; color: #cdd6f4; border: 1px solid #313244; padding: 2px 4px;"
+        )
         self._commit_msg.returnPressed.connect(self.commit)
         commit_row.addWidget(self._commit_msg)
 
@@ -128,7 +118,6 @@ class GitPanel(QWidget):
         commit_row.addWidget(commit_btn)
         list_layout.addLayout(commit_row)
 
-        # Pull / Push
         push_row = QHBoxLayout()
         for label, slot in [("Pull", self.pull), ("Push", self.push)]:
             btn = QPushButton(label)
@@ -138,30 +127,16 @@ class GitPanel(QWidget):
 
         splitter.addWidget(list_widget)
 
-        # Diff view
         self._diff_view = QTextEdit()
         self._diff_view.setReadOnly(True)
         self._diff_view.setFont(QFont("JetBrains Mono", 10))
-        self._diff_view.setStyleSheet("""
-            QTextEdit { background: #11111b; color: #cdd6f4; border: none; }
-        """)
+        self._diff_view.setStyleSheet(
+            "QTextEdit { background: #11111b; color: #cdd6f4; border: none; }"
+        )
         splitter.addWidget(self._diff_view)
         splitter.setSizes([300, 200])
 
         layout.addWidget(splitter)
-
-        # Shared button style
-        for btn in self.findChildren(QPushButton):
-            if not btn.styleSheet():
-                btn.setStyleSheet("""
-                    QPushButton {
-                        background: #313244; color: #cdd6f4;
-                        border: none; border-radius: 3px;
-                        padding: 2px 8px;
-                    }
-                    QPushButton:hover { background: #45475a; }
-                    QPushButton:pressed { background: #585b70; }
-                """)
 
     # ---------------------------------------------------------------- API --
 
@@ -173,11 +148,9 @@ class GitPanel(QWidget):
         if not path:
             return
 
-        # Branch
         out, _, _ = _git(["branch", "--show-current"], path)
         self._branch_label.setText(out.strip())
 
-        # Status
         out, err, code = _git(["status", "--porcelain"], path)
         if code != 0:
             self._file_list.addItem(f"Not a git repo: {err.strip()}")
@@ -189,15 +162,14 @@ class GitPanel(QWidget):
             xy = line[:2]
             fname = line[3:]
             item = QListWidgetItem(f"{xy} {fname}")
-            # Color by status
             if "?" in xy:
-                item.setForeground(QColor("#a6e3a1"))    # untracked
+                item.setForeground(QColor("#a6e3a1"))
             elif "M" in xy or "A" in xy:
-                item.setForeground(QColor("#89b4fa"))    # modified/added
+                item.setForeground(QColor("#89b4fa"))
             elif "D" in xy:
-                item.setForeground(QColor("#f38ba8"))    # deleted
+                item.setForeground(QColor("#f38ba8"))
             else:
-                item.setForeground(QColor("#f9e2af"))    # other
+                item.setForeground(QColor("#f9e2af"))
             item.setData(Qt.ItemDataRole.UserRole, fname.strip())
             self._file_list.addItem(item)
 
@@ -249,7 +221,6 @@ class GitPanel(QWidget):
         fname = current.data(Qt.ItemDataRole.UserRole)
         if not fname:
             return
-        # Show diff
         out, _, code = _git(["diff", "HEAD", "--", fname], self._repo)
         if not out:
             out, _, _ = _git(["diff", "--cached", "--", fname], self._repo)

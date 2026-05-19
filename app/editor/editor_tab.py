@@ -10,7 +10,6 @@ from pathlib import Path
 
 from PyQt6.QtWidgets import (
     QTabWidget, QWidget, QVBoxLayout, QFileDialog, QMessageBox,
-    QInputDialog,
 )
 from PyQt6.QtCore import pyqtSignal, Qt, QUrl, QTimer
 from PyQt6.QtWebEngineWidgets import QWebEngineView
@@ -21,9 +20,8 @@ import json
 
 EDITOR_HTML = Path(__file__).parent.parent / "resources" / "editor.html"
 
-# Recognised binary extensions — open as read-only hex stub
 BINARY_EXT = {
-    ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico", ".svg",
+    ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico",
     ".pdf", ".zip", ".tar", ".gz", ".whl", ".exe", ".dll", ".so",
     ".db", ".sqlite",
 }
@@ -49,7 +47,7 @@ class JSBridge(QObject):
 class EditorPane(QWidget):
     """Single editor tab: WebEngineView + CodeMirror + WebChannel."""
 
-    dirty_changed = pyqtSignal(bool)    # True = unsaved changes
+    dirty_changed = pyqtSignal(bool)
 
     def __init__(self, filepath: str | None = None):
         super().__init__()
@@ -58,6 +56,7 @@ class EditorPane(QWidget):
         self._ready = False
         self._pending_content: str | None = None
         self._pending_lang: str | None = None
+        self._current_content: str = ""
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -66,7 +65,6 @@ class EditorPane(QWidget):
         self._view.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
         layout.addWidget(self._view)
 
-        # WebChannel bridge
         self._bridge = JSBridge()
         self._bridge.editor_ready.connect(self._on_ready)
         self._bridge.content_changed.connect(self._on_content_changed)
@@ -103,29 +101,25 @@ class EditorPane(QWidget):
     def get_content(self) -> str:
         return self._current_content
 
-    def set_content_from_js(self, content: str):
-        """Called by JS bridge when content changes."""
-        self._current_content = content
-
     def save(self) -> bool:
         if not self._filepath:
             return self.save_as()
-        return self._write(self._filepath)
+        self._view.page().runJavaScript(
+            "window.NepiIDE ? window.NepiIDE.getContent() : ''",
+            lambda result: self._do_write(self._filepath, result or "")
+        )
+        return True
 
     def save_as(self) -> bool:
         path, _ = QFileDialog.getSaveFileName(self, "Save As", self._filepath or "")
         if path:
             self._filepath = path
-            return self._write(path)
+            self._view.page().runJavaScript(
+                "window.NepiIDE ? window.NepiIDE.getContent() : ''",
+                lambda result: self._do_write(path, result or "")
+            )
+            return True
         return False
-
-    def _write(self, path: str) -> bool:
-        # Get content via JS synchronously (best-effort)
-        self._view.page().runJavaScript(
-            "window.NepiIDE ? window.NepiIDE.getContent() : ''",
-            lambda result: self._do_write(path, result or "")
-        )
-        return True
 
     def _do_write(self, path: str, content: str):
         try:
@@ -137,8 +131,6 @@ class EditorPane(QWidget):
             QMessageBox.critical(self, "Save Error", str(e))
 
     # ---------------------------------------------------------------- internal --
-
-    _current_content: str = ""
 
     def _set_content(self, text: str, filepath: str | None = None):
         self._current_content = text
@@ -153,7 +145,13 @@ class EditorPane(QWidget):
 
     def _apply_pending(self):
         if self._pending_content is not None:
-            escaped = self._pending_content.replace("\\", "\\\\").replace("`", "\\`")
+            # Escape backticks and backslashes for JS template literal
+            escaped = (
+                self._pending_content
+                .replace("\\", "\\\\")
+                .replace("`", "\\`")
+                .replace("${", "\\${")
+            )
             self._view.page().runJavaScript(
                 f"window.NepiIDE && window.NepiIDE.setContent(`{escaped}`)"
             )
@@ -162,7 +160,7 @@ class EditorPane(QWidget):
             self._pending_content = None
 
         if self._pending_lang is not None:
-            lang_escaped = self._pending_lang.replace("'", "\\'")
+            lang_escaped = self._pending_lang.replace("\\", "\\\\").replace("'", "\\'")
             self._view.page().runJavaScript(
                 f"window.NepiIDE && window.NepiIDE.setLanguage('{lang_escaped}')"
             )
@@ -199,14 +197,15 @@ class EditorTabWidget(QTabWidget):
     # ---------------------------------------------------------------- API --
 
     def open_file(self, filepath: str):
-        # Already open? Switch to it.
         if filepath in self._filepath_to_idx:
             self.setCurrentIndex(self._filepath_to_idx[filepath])
             return
 
         pane = EditorPane(filepath)
         pane.load_file(filepath)
-        pane.dirty_changed.connect(lambda dirty, fp=filepath: self._update_tab_title(fp, dirty))
+        pane.dirty_changed.connect(
+            lambda dirty, fp=filepath: self._update_tab_title(fp, dirty)
+        )
 
         name = Path(filepath).name
         idx = self.addTab(pane, name)
@@ -234,7 +233,6 @@ class EditorTabWidget(QTabWidget):
         return pane.filepath if pane else None
 
     def close_all(self) -> bool:
-        """Returns False if user cancels on unsaved file."""
         for i in range(self.count()):
             pane = self.widget(i)
             if isinstance(pane, EditorPane) and pane.dirty:
@@ -271,12 +269,10 @@ class EditorTabWidget(QTabWidget):
             if reply == QMessageBox.StandardButton.Save:
                 pane.save()
 
-        # Remove from index map
         if isinstance(pane, EditorPane) and pane.filepath:
             self._filepath_to_idx.pop(pane.filepath, None)
 
         self.removeTab(idx)
-        # Rebuild index map
         self._rebuild_index()
 
     def _rebuild_index(self):

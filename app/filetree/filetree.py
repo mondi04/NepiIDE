@@ -6,16 +6,11 @@ Kontextmenü: Neue Datei, Neuer Ordner, Umbenennen, Löschen.
 from pathlib import Path
 
 from PyQt6.QtWidgets import (
-    QTreeView, QFileSystemModel, QMenu, QInputDialog,
+    QTreeView, QMenu, QInputDialog,
     QMessageBox, QAbstractItemView,
 )
-from PyQt6.QtCore import Qt, QModelIndex, pyqtSignal, QDir, QSortFilterProxyModel
-from PyQt6.QtGui import QAction
-
-
-IGNORED = {".git", "__pycache__", ".venv", "venv", "env", ".mypy_cache",
-           ".ruff_cache", ".pytest_cache", "*.pyc", "dist", "build",
-           "*.egg-info", "node_modules", ".DS_Store"}
+from PyQt6.QtCore import Qt, QModelIndex, pyqtSignal, QSortFilterProxyModel
+from PyQt6.QtGui import QAction, QFileSystemModel
 
 
 class HideFilter(QSortFilterProxyModel):
@@ -36,7 +31,7 @@ class HideFilter(QSortFilterProxyModel):
 
 
 class FileTree(QTreeView):
-    file_opened = pyqtSignal(str)   # emits absolute filepath
+    file_opened = pyqtSignal(str)
 
     def __init__(self):
         super().__init__()
@@ -49,7 +44,6 @@ class FileTree(QTreeView):
         self._proxy.setSourceModel(self._fs_model)
         self.setModel(self._proxy)
 
-        # Hide size / type / date columns
         for col in (1, 2, 3):
             self.hideColumn(col)
 

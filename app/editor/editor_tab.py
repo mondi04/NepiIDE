@@ -1,5 +1,6 @@
 """
 EditorTabWidget — verwaltet mehrere offene Dateien als Tabs.
+FIXED: Verbessertes QWebChannel-Setup und Content-Loading
 """
 
 from __future__ import annotations
@@ -39,8 +40,8 @@ class JSBridge(QObject):
                 self.editor_ready.emit()
             elif data.get("type") == "changed":
                 self.content_changed.emit(data.get("content", ""))
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"JSBridge error: {e}")
 
 
 class EditorPane(QWidget):
@@ -54,6 +55,7 @@ class EditorPane(QWidget):
         self._pending_content: str | None = None
         self._pending_lang: str | None = None
         self._current_content: str = ""
+        self._load_attempts = 0
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -66,12 +68,30 @@ class EditorPane(QWidget):
         self._bridge.editor_ready.connect(self._on_ready)
         self._bridge.content_changed.connect(self._on_content_changed)
 
+        # CRITICAL: Set up web channel BEFORE loading page
         self._channel = QWebChannel()
         self._channel.registerObject("NepiIDEChannel", self._bridge)
         self._view.page().setWebChannel(self._channel)
+        
+        # Monitor page load
+        self._view.loadFinished.connect(self._on_page_loaded)
 
+        # Load editor HTML
+        if not EDITOR_HTML.exists():
+            print(f"ERROR: editor.html not found at {EDITOR_HTML}")
+        
         url = QUrl.fromLocalFile(str(EDITOR_HTML))
         self._view.load(url)
+    
+    def _on_page_loaded(self, success: bool):
+        """Called when HTML page finishes loading."""
+        if not success:
+            print(f"ERROR: Failed to load editor.html")
+            self._load_attempts += 1
+            if self._load_attempts < 3:
+                QTimer.singleShot(500, lambda: self._view.reload())
+        else:
+            print(f"Editor HTML loaded successfully")
 
     @property
     def filepath(self) -> str | None:
@@ -131,31 +151,39 @@ class EditorPane(QWidget):
         self._pending_lang = filepath
         if self._ready:
             self._apply_pending()
+        else:
+            # Retry applying after a delay if not ready yet
+            QTimer.singleShot(200, self._check_and_apply)
+
+    def _check_and_apply(self):
+        """Retry applying content if editor is now ready."""
+        if self._ready and self._pending_content is not None:
+            self._apply_pending()
 
     def _on_ready(self):
+        print("Editor ready signal received")
         self._ready = True
         self._apply_pending()
 
     def _apply_pending(self):
         if self._pending_content is not None:
+            # Escape content for JavaScript template literal
             escaped = (
                 self._pending_content
                 .replace("\\", "\\\\")
                 .replace("`", "\\`")
                 .replace("${", "\\${")
             )
-            self._view.page().runJavaScript(
-                f"window.NepiIDE && window.NepiIDE.setContent(`{escaped}`)"
-            )
+            js_code = f"window.NepiIDE && window.NepiIDE.setContent(`{escaped}`)"
+            self._view.page().runJavaScript(js_code)
             self._dirty = False
             self.dirty_changed.emit(False)
             self._pending_content = None
 
         if self._pending_lang is not None:
             lang_escaped = self._pending_lang.replace("\\", "\\\\").replace("'", "\\'")
-            self._view.page().runJavaScript(
-                f"window.NepiIDE && window.NepiIDE.setLanguage('{lang_escaped}')"
-            )
+            js_code = f"window.NepiIDE && window.NepiIDE.setLanguage('{lang_escaped}')"
+            self._view.page().runJavaScript(js_code)
             self._pending_lang = None
 
     def _on_content_changed(self, content: str):
